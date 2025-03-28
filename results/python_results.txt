@@ -1,0 +1,5 @@
+
+=== Average Function Times over 10 Runs ===
+Average Creation Time: 306.795 ms
+Average Processing Time: 219.675 ms
+Total Python main() time: 5265.794 ms

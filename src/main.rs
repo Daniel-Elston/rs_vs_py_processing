@@ -1,54 +1,72 @@
+mod config;
+mod utils;
 mod data_creation;
 mod data_processing;
 
 use std::error::Error;
 use std::time::Instant;
 use core::time::Duration;
+use std::thread;
+use std::thread::JoinHandle;
 
-fn create_data() -> Duration {
-    let start = Instant::now();
-    let _ = data_creation::create::run();
-    start.elapsed()
-}
+use utils::pipe_utils::*;
 
-fn process_data() -> Duration {
-    let start = Instant::now();
-    let _ = data_processing::process::run();
-    start.elapsed()
-}
+use crate::config::NUM_RUNS;
 
-fn duration_to_millis(duration: Duration) -> f64 {
-    duration.as_secs_f64() * 1000.0
-}
-
-fn average_duration(durations: &[Duration]) -> Duration {
-    let total = durations.iter().sum::<Duration>();
-    total / durations.len() as u32
-}
-
-fn display_results(creation_times: &[Duration], processing_times: &[Duration]) {
-    let avg_creation = average_duration(creation_times);
-    let avg_processing = average_duration(processing_times);
-
-    println!("\n=== Average Execution Times over {} Runs ===", creation_times.len());
-    println!("Average creation time: {:.3} ms", duration_to_millis(avg_creation));
-    println!("Average processing time: {:.3} ms", duration_to_millis(avg_processing));
-}
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut creation_times = Vec::new();
-    let mut processing_times = Vec::new();
+    let start = Instant::now();
 
-    for i in 0..10 {
-        println!("\n--- Run {} ---", i + 1);
+    // std::env::set_var("POLARS_MAX_THREADS", num_cpus::get().to_string()); // get thread count
+    std::env::set_var("POLARS_MAX_THREADS", "16"); // get thread count
 
-        let creation_duration = create_data();
-        creation_times.push(creation_duration);
+    let mut handles = Vec::with_capacity(NUM_RUNS); // Pre-allocate mem for NUM_RUNS upfront
+    // vector store to hold threads ^
+    
+    for i in 0..NUM_RUNS {
+        let handle: JoinHandle<(Duration, Duration)> = thread::spawn(move || { //<-- each thread runs the closure 'move' in parallel
+            // Handle for ^ each thread. Spawn a thread for each ^ run.
+            println!("\n--- Run {} ---", i + 1);
+            let filename = format!("data/data_{}.parquet", i); // Create thread-specific filename
 
-        let processing_duration = process_data();
-        processing_times.push(processing_duration);
+            let creation_duration = {
+                let start = Instant::now();
+                let _ = data_creation::create::run(&filename);
+                start.elapsed()
+            };
+            
+            let processing_duration = {
+                let start = Instant::now();
+                let _ = data_processing::process::run(&filename);
+                start.elapsed()
+            };
+            
+            (creation_duration, processing_duration)
+        });
+        handles.push(handle);
+    }
+    
+
+    let mut creation_times = Vec::new(); // objects *_times in scope for fn main()
+    let mut processing_times = Vec::new(); // ^
+    
+    for handle in handles {
+        let (c, p) = handle.join().unwrap(); // Join(): Wait for thread to finish, return vals, Ok((c,p))
+        // unwrap(): If success return vals, else panic ^
+        creation_times.push(c);
+        processing_times.push(p);
+    }
+    let avg_creation_time = average_duration(creation_times); // Ownership changes, past this line *_times out of scope
+    let avg_processing_time = average_duration(processing_times); // ^ Objects now in scope for fn average_duration
+
+    for i in 0..NUM_RUNS {
+        let _ = std::fs::remove_file(format!("data/data_{}.parquet", i));
     }
 
-    display_results(&creation_times, &processing_times);
+    let total = start.elapsed();
+    let results = display_results(avg_creation_time, avg_processing_time, total);
+
+    save_results(&results, "results/rust_results.txt")?;
+    
     Ok(())
 }

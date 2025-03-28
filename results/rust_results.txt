@@ -1,0 +1,5 @@
+
+=== Average Function Times over 10 Runs ===
+Average creation time: 2076.000 ms
+Average processing time: 335.000 ms
+Total Rust main() time: 2543.457 ms
